@@ -203,7 +203,7 @@ Amount: ${DEFAULT_BET_SIZE} BNB
 `;
             console.log(message);
             await sendTelegramMessage(message);
-            message = await placeBullBet(currentEpoch, DEFAULT_BET_SIZE, txContract, wallet.address);
+            message = await placeBullBet(currentEpoch + 1, DEFAULT_BET_SIZE, txContract, wallet.address);
             await sendTelegramMessage(message);
         } else if (bettingUp === false) {
             message = `
@@ -213,7 +213,7 @@ Amount: ${DEFAULT_BET_SIZE} BNB
 `;
             console.log(message);
             await sendTelegramMessage(message);
-            message = await placeBearBet(currentEpoch, DEFAULT_BET_SIZE, txContract, wallet.address);
+            message = await placeBearBet(currentEpoch + 1, DEFAULT_BET_SIZE, txContract, wallet.address);
             await sendTelegramMessage(message);
         } else if (bettingUp === null) {
             message = `Can't calculate price...`;
