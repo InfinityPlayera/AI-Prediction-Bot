@@ -188,8 +188,8 @@ Timestamp: ${new Date().toLocaleString()}
         await sendTelegramMessage(message);
 
         console.log('Waiting for 278 seconds...');
-        await sleep(278 * 1000);
-        console.log('278 second wait completed');
+        await sleep(280 * 1000);
+        console.log('280 second wait completed');
 
         const bettingUp = await executeStrategy(currentEpoch);
 
