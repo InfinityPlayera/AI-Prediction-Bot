@@ -37,7 +37,7 @@ let bettingIndex = 0;
 let listenerProvider = null;
 let listenerContract = null;
 
-const DEFAULT_BET_SIZE = ethers.parseEther('0.002');
+const DEFAULT_BET_SIZE = ethers.parseEther('0.01');
 const RSI_PERIOD = 14;
 const DEFAULT_RSI_UPPER = 50;
 const DEFAULT_RSI_LOWER = 50;
