@@ -171,25 +171,15 @@ const handleStartRoundEvent = async (epoch) => {
             return;
         }
 
+        console.log('Waiting for 278 seconds...');
+        await sleep(278 * 1000);
+        console.log('278 second wait completed');
+
         const currentEpoch = await getCurrentEpoch(txContract);
         if (!currentEpoch) {
             console.error("Could not fetch current epoch, aborting...");
             return;
         }
-
-        let message = `
-🎲 NEW ROUND Started:
-Epoch: ${currentEpoch.toString()}
-Timestamp: ${new Date().toLocaleString()}
-`;
-        console.log(message);
-
-        await sendTelegramMessage('🔄 New Round Started!');
-        await sendTelegramMessage(message);
-
-        console.log('Waiting for 278 seconds...');
-        await sleep(278 * 1000);
-        console.log('278 second wait completed');
 
         const bettingUp = await executeStrategy(currentEpoch);
 
