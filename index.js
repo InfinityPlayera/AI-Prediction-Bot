@@ -204,7 +204,7 @@ Amount: ${ethers.formatEther(DEFAULT_BET_SIZE)} BNB
             console.log(message);
             await sendTelegramMessage(message);
             try {
-                message = await placeBullBet(currentEpoch + BigInt(1), DEFAULT_BET_SIZE, txContract, wallet.address);
+                message = await placeBullBet(currentEpoch, DEFAULT_BET_SIZE, txContract, wallet.address);
                 await sendTelegramMessage(message);
             } catch (betError) {
                 await sendTelegramMessage(`❌ Failed to place bull bet: ${betError.message}`);
@@ -219,7 +219,7 @@ Amount: ${ethers.formatEther(DEFAULT_BET_SIZE)} BNB
             console.log(message);
             await sendTelegramMessage(message);
             try {
-                message = await placeBearBet(currentEpoch + BigInt(1), DEFAULT_BET_SIZE, txContract, wallet.address);
+                message = await placeBearBet(currentEpoch, DEFAULT_BET_SIZE, txContract, wallet.address);
                 await sendTelegramMessage(message);
             } catch (betError) {
                 await sendTelegramMessage(`❌ Failed to place bull bet: ${betError.message}`);
