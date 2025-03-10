@@ -222,7 +222,7 @@ Amount: ${DEFAULT_BET_SIZE} BNB
         }
 
         bettingIndex++;
-        if (bettingIndex >= 10) {
+        if (bettingIndex >= 5) {
             bettingIndex = 0;
             message = await claimRewards(txContract, wallet.address);
             await sendTelegramMessage(message);
@@ -387,7 +387,7 @@ bot.command('status', async (ctx) => {
 - Reconnect Attempts: ${status.reconnectAttempts}
 - Transaction Provider: ${txProviderConnected ? '✅ Connected' : '❌ Disconnected'}
 - Monitoring Address: ${process.env.TARGET_ADDRESS}
-- Betting Index: ${bettingIndex}/10
+- Betting Index: ${bettingIndex}
     `;
 
     ctx.reply(statusMessage);
