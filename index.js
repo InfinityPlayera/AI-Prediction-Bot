@@ -187,7 +187,7 @@ Timestamp: ${new Date().toLocaleString()}
         await sendTelegramMessage('🔄 New Round Started!');
         await sendTelegramMessage(message);
 
-        console.log('Waiting for 285 seconds...');
+        console.log('Waiting for 278 seconds...');
         await sleep(278 * 1000);
         console.log('278 second wait completed');
 
