@@ -172,8 +172,8 @@ const handleStartRoundEvent = async (epoch) => {
         }
 
         console.log('Waiting for 278 seconds...');
-        await sleep(278 * 1000);
-        console.log('278 second wait completed');
+        await sleep(285 * 1000);
+        console.log('285 second wait completed');
 
         const currentEpoch = await getCurrentEpoch(txContract);
         if (!currentEpoch) {
