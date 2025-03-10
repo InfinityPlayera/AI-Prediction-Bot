@@ -164,36 +164,6 @@ const executeStrategy = async (currentEpoch) => {
     return betUp;
 }
 
-async function checkRoundConditions(epoch, txContract) {
-    // Check if contract is paused
-    const isPaused = await txContract.paused();
-    if (isPaused) {
-        throw new Error("Contract is paused");
-    }
-
-    // Get round info
-    const round = await txContract.rounds(epoch);
-    
-    // Check round timing
-    const currentTimestamp = Math.floor(Date.now() / 1000);
-    if (currentTimestamp <= Number(round.startTimestamp) || 
-        currentTimestamp >= Number(round.lockTimestamp)) {
-        throw new Error("Round not bettable - outside valid time window");
-    }
-
-    // Check minimum bet amount
-    const minBet = await txContract.minBetAmount();
-    if (DEFAULT_BET_SIZE < minBet) {
-        throw new Error(`Bet amount too low - minimum is ${ethers.utils.formatEther(minBet)} BNB`);
-    }
-
-    // Check wallet balance
-    const balance = await wallet.getBalance();
-    if (balance.lt(DEFAULT_BET_SIZE)) {
-        throw new Error("Insufficient wallet balance");
-    }
-}
-
 const handleStartRoundEvent = async (epoch) => {
     try {
         if (!epoch) {
@@ -218,16 +188,14 @@ Timestamp: ${new Date().toLocaleString()}
         await sendTelegramMessage(message);
 
         console.log('Waiting for 278 seconds...');
-        await sleep(280 * 1000);
-        console.log('280 second wait completed');
+        await sleep(278 * 1000);
+        console.log('278 second wait completed');
 
         const bettingUp = await executeStrategy(currentEpoch);
 
         console.log('bettingUp: ',bettingUp);
 
         if (bettingUp === true) {
-            await checkRoundConditions(currentEpoch, txContract);
-
             message = `
 🟢 BULL BET Detected:
 Epoch: ${currentEpoch.toString()}
@@ -243,8 +211,6 @@ Amount: ${ethers.formatEther(DEFAULT_BET_SIZE)} BNB
                 return;
             }
         } else if (bettingUp === false) {
-            await checkRoundConditions(currentEpoch, txContract);
-
             message = `
 🔴 BEAR BET Detected:
 Epoch: ${currentEpoch.toString()}
