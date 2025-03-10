@@ -164,6 +164,36 @@ const executeStrategy = async (currentEpoch) => {
     return betUp;
 }
 
+async function checkRoundConditions(epoch, txContract) {
+    // Check if contract is paused
+    const isPaused = await txContract.paused();
+    if (isPaused) {
+        throw new Error("Contract is paused");
+    }
+
+    // Get round info
+    const round = await txContract.rounds(epoch);
+    
+    // Check round timing
+    const currentTimestamp = Math.floor(Date.now() / 1000);
+    if (currentTimestamp <= Number(round.startTimestamp) || 
+        currentTimestamp >= Number(round.lockTimestamp)) {
+        throw new Error("Round not bettable - outside valid time window");
+    }
+
+    // Check minimum bet amount
+    const minBet = await txContract.minBetAmount();
+    if (DEFAULT_BET_SIZE < minBet) {
+        throw new Error(`Bet amount too low - minimum is ${ethers.utils.formatEther(minBet)} BNB`);
+    }
+
+    // Check wallet balance
+    const balance = await wallet.getBalance();
+    if (balance.lt(DEFAULT_BET_SIZE)) {
+        throw new Error("Insufficient wallet balance");
+    }
+}
+
 const handleStartRoundEvent = async (epoch) => {
     try {
         if (!epoch) {
@@ -196,25 +226,39 @@ Timestamp: ${new Date().toLocaleString()}
         console.log('bettingUp: ',bettingUp);
 
         if (bettingUp === true) {
+            await checkRoundConditions(currentEpoch, txContract);
+
             message = `
 🟢 BULL BET Detected:
 Epoch: ${currentEpoch.toString()}
-Amount: ${DEFAULT_BET_SIZE} BNB
+Amount: ${ethers.formatEther(DEFAULT_BET_SIZE)} BNB
 `;
             console.log(message);
             await sendTelegramMessage(message);
-            message = await placeBullBet(currentEpoch + BigInt(1), DEFAULT_BET_SIZE, txContract, wallet.address);
-            await sendTelegramMessage(message);
+            try {
+                message = await placeBullBet(currentEpoch + BigInt(1), DEFAULT_BET_SIZE, txContract, wallet.address);
+                await sendTelegramMessage(message);
+            } catch (betError) {
+                await sendTelegramMessage(`❌ Failed to place bull bet: ${betError.message}`);
+                return;
+            }
         } else if (bettingUp === false) {
+            await checkRoundConditions(currentEpoch, txContract);
+
             message = `
 🔴 BEAR BET Detected:
 Epoch: ${currentEpoch.toString()}
-Amount: ${DEFAULT_BET_SIZE} BNB
+Amount: ${ethers.formatEther(DEFAULT_BET_SIZE)} BNB
 `;
             console.log(message);
             await sendTelegramMessage(message);
-            message = await placeBearBet(currentEpoch + BigInt(1), DEFAULT_BET_SIZE, txContract, wallet.address);
-            await sendTelegramMessage(message);
+            try {
+                message = await placeBearBet(currentEpoch + BigInt(1), DEFAULT_BET_SIZE, txContract, wallet.address);
+                await sendTelegramMessage(message);
+            } catch (betError) {
+                await sendTelegramMessage(`❌ Failed to place bull bet: ${betError.message}`);
+                return;
+            }
         } else if (bettingUp === null) {
             message = `Can't calculate price...`;
             await sendTelegramMessage(message);

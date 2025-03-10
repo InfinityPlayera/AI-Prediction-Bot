@@ -13,7 +13,7 @@ async function placeBullBet(epoch, amount, txContract, address) {
         console.log('before placebullbet');
         const tx = await txContract.betBull(epoch, {
             value: amount,
-            gasLimit: 700000
+            gasLimit: 500000
         });
         console.log('bet bulling');
         const receipt = await tx.wait();
@@ -44,7 +44,7 @@ async function placeBearBet(epoch, amount, txContract, address) {
         console.log('before placebearbet');
         const tx = await txContract.betBear(epoch, {
             value: amount,
-            gasLimit: 700000
+            gasLimit: 500000
         });
         console.log('bet bearing');
         const receipt = await tx.wait();
