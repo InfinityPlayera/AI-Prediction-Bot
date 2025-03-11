@@ -6,6 +6,7 @@ const axios = require('axios');
 const { CONTRACT_ABI } = require('./config/contract');
 const { WSS_ENDPOINTS_CALL, RPC_ENDPOINTS_TX, PREDICTION_CONTRACT, BNB_KLINES_URL, CRYPTO_COMPARE_URL } = require('./config/constants');
 const { getCurrentEpoch, placeBearBet, placeBullBet, claimRewards } = require('./services/prediction');
+const httpProvider = require('./httpProvider');
 
 // Import Telegram bot and command handlers
 const bot = require('./config/bot');
@@ -28,16 +29,18 @@ bot.launch().then(() => {
     console.error('Failed to launch bot:', error);
 });
 
-// Initialize transaction provider (using HTTP RPC for reliability)
-const txProvider = new ethers.JsonRpcProvider(RPC_ENDPOINTS_TX);
-const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, txProvider);
-const txContract = new ethers.Contract(PREDICTION_CONTRACT, CONTRACT_ABI, wallet);
+// Initialize HTTP provider
+httpProvider.initializeHttpProvider(bot).then(() => {
+    console.log('Initial HTTP Provider setup completed');
+}).catch(error => {
+    console.error('Failed to initialize HTTP Provider:', error);
+});
 
 let bettingIndex = 0;
 let listenerProvider = null;
 let listenerContract = null;
 
-const DEFAULT_BET_SIZE = ethers.parseEther('0.01');
+const DEFAULT_BET_SIZE = ethers.parseEther('0.02');
 const RSI_PERIOD = 14;
 const DEFAULT_RSI_UPPER = 50;
 const DEFAULT_RSI_LOWER = 50;
@@ -67,7 +70,7 @@ const fetchBNBPricesFromBinance = async () => {
         return response.data.map(kline => parseFloat(kline[4]));
     } catch (error) {
         if (error.response && error.response.status === 451) {
-            console.error('Error fetching BNB prices from Binance: Request blocked due o regional restrictions.');
+            console.error('Error fetching BNB prices from Binance: Request blocked due to regional restrictions.');
         } else {
             console.error('Error fetching BNB prices from Binance:', error.message);
         }
@@ -118,7 +121,6 @@ const calculateRSI = (prices) => {
     let gains = 0;
     let losses = 0;
 
-    // Calculate price differences between consecutive periods
     for (let i = 1; i <= RSI_PERIOD; i++) {
         const difference = prices[i] - prices[i - 1];
         if (difference > 0) {
@@ -133,7 +135,7 @@ const calculateRSI = (prices) => {
 
     console.log(averageGain, averageLoss);
 
-    if (averageLoss === 0) return 100; // If no losses, RSI is 100
+    if (averageLoss === 0) return 100;
 
     const rs = averageGain / averageLoss;
     const rsi = 100 - (100 / (1 + rs));
@@ -143,12 +145,14 @@ const calculateRSI = (prices) => {
 const executeStrategy = async (currentEpoch) => {
     const prices = await fetchCombinedBNBPrices();
     if (prices.length === 0) {
-        console.error('Could not fetch BNB prices, aborting...')
+        console.error('Could not fetch BNB prices, aborting...');
+        return null;
     }
 
     const rsi = calculateRSI(prices);
     if (rsi === null) {
         console.error("Could not calculate RSI, aborting...");
+        return null;
     }
     console.log('Current RSI: ', rsi);
 
@@ -175,7 +179,10 @@ const handleStartRoundEvent = async (epoch) => {
         await sleep(285 * 1000);
         console.log('285 second wait completed');
 
-        const currentEpoch = await getCurrentEpoch(txContract);
+        const txContract = httpProvider.getTxContract();
+        const wallet = httpProvider.getWallet();
+
+        const currentEpoch = await getCurrentEpoch(txContract, bot);
         if (!currentEpoch) {
             console.error("Could not fetch current epoch, aborting...");
             return;
@@ -183,40 +190,28 @@ const handleStartRoundEvent = async (epoch) => {
 
         const bettingUp = await executeStrategy(currentEpoch);
 
-        console.log('bettingUp: ',bettingUp);
-
         if (bettingUp === true) {
-            message = `
+            let message = `
 🟢 BULL BET Detected:
 Epoch: ${currentEpoch.toString()}
 Amount: ${ethers.formatEther(DEFAULT_BET_SIZE)} BNB
 `;
             console.log(message);
             await sendTelegramMessage(message);
-            try {
-                message = await placeBullBet(currentEpoch, DEFAULT_BET_SIZE, txContract, wallet.address);
-                await sendTelegramMessage(message);
-            } catch (betError) {
-                await sendTelegramMessage(`❌ Failed to place bull bet: ${betError.message}`);
-                return;
-            }
+            message = await placeBullBet(currentEpoch, DEFAULT_BET_SIZE, txContract, wallet.address, bot);
+            await sendTelegramMessage(message);
         } else if (bettingUp === false) {
-            message = `
+            let message = `
 🔴 BEAR BET Detected:
 Epoch: ${currentEpoch.toString()}
 Amount: ${ethers.formatEther(DEFAULT_BET_SIZE)} BNB
 `;
             console.log(message);
             await sendTelegramMessage(message);
-            try {
-                message = await placeBearBet(currentEpoch, DEFAULT_BET_SIZE, txContract, wallet.address);
-                await sendTelegramMessage(message);
-            } catch (betError) {
-                await sendTelegramMessage(`❌ Failed to place bull bet: ${betError.message}`);
-                return;
-            }
-        } else if (bettingUp === null) {
-            message = `Can't calculate price...`;
+            message = await placeBearBet(currentEpoch, DEFAULT_BET_SIZE, txContract, wallet.address, bot);
+            await sendTelegramMessage(message);
+        } else {
+            let message = `Can't calculate price...`;
             await sendTelegramMessage(message);
             return;
         }
@@ -224,7 +219,7 @@ Amount: ${ethers.formatEther(DEFAULT_BET_SIZE)} BNB
         bettingIndex++;
         if (bettingIndex >= 5) {
             bettingIndex = 0;
-            message = await claimRewards(txContract, wallet.address);
+            let message = await claimRewards(txContract, wallet.address, bot);
             await sendTelegramMessage(message);
         }
 
@@ -234,12 +229,9 @@ Amount: ${ethers.formatEther(DEFAULT_BET_SIZE)} BNB
     }
 };
 
-
 // Set up event listeners
 const setupEventListeners = (contract) => {
-    // Listen for BetBull events from target address
     contract.on(contract.filters.StartRound(), handleStartRoundEvent);
-
     console.log(`✅ Event listeners set up for StartRoundEvent`);
 };
 
@@ -247,11 +239,10 @@ const setupEventListeners = (contract) => {
 function createReconnectingWebSocketProvider() {
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 10;
-    let heartbeatInterval = null; // Initialize as null
+    let heartbeatInterval = null;
 
     const connect = async () => {
         try {
-            // Clean up any existing provider
             if (listenerProvider) {
                 console.log("Cleaning up existing WebSocket provider...");
 
@@ -268,21 +259,17 @@ function createReconnectingWebSocketProvider() {
                 }
             }
 
-            // Create new provider
             console.log(`Connecting to WebSocket at ${WSS_ENDPOINTS_CALL}...`);
             listenerProvider = new ethers.WebSocketProvider(WSS_ENDPOINTS_CALL);
             listenerContract = new ethers.Contract(PREDICTION_CONTRACT, CONTRACT_ABI, listenerProvider);
 
-            // Set up event listeners
             setupEventListeners(listenerContract);
 
-            // Handle WebSocket-specific errors
             listenerProvider.on("error", (error) => {
                 console.error(`WebSocket error:`, error);
                 reconnect("WebSocket error occurred");
             });
 
-            // Monitor WebSocket connection status
             if (listenerProvider.websocket) {
                 listenerProvider.websocket.on("close", () => {
                     console.log(`WebSocket connection closed`);
@@ -290,7 +277,6 @@ function createReconnectingWebSocketProvider() {
                 });
             }
 
-            // Set up heartbeat to keep connection alive
             heartbeatInterval = setInterval(async () => {
                 try {
                     const blockNumber = await listenerProvider.getBlockNumber();
@@ -299,9 +285,8 @@ function createReconnectingWebSocketProvider() {
                     console.error("Heartbeat check failed:", error);
                     reconnect("Heartbeat check failed");
                 }
-            }, 30000); // Every 30 seconds
+            }, 30000);
 
-            // Reset reconnection counter on successful connection
             reconnectAttempts = 0;
             await sendTelegramMessage("🔄 WebSocket connection established successfully");
             console.log("WebSocket connection established successfully");
@@ -315,7 +300,6 @@ function createReconnectingWebSocketProvider() {
     };
 
     const reconnect = async (reason) => {
-        // Clear the heartbeat interval if it exists
         if (heartbeatInterval) {
             clearInterval(heartbeatInterval);
             heartbeatInterval = null;
@@ -328,17 +312,16 @@ function createReconnectingWebSocketProvider() {
         }
 
         reconnectAttempts++;
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 60000); // Exponential backoff, max 1 minute
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 60000);
 
-        console.log(`WebSocket disconnected (${reason}). Attempting to reconnect in ${delay / 1000}s (attempt ${reconnectAttempts}/${maxReconnectAttempts})...`);
-        await sendTelegramMessage(`⚠️ WebSocket disconnected (${reason}). Reconnecting in ${delay / 1000}s (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
+        console.log(`WebSocket disconnected (${reason}). Attempting to reconnect in ${delay/1000}s (attempt ${reconnectAttempts}/${maxReconnectAttempts})...`);
+        await sendTelegramMessage(`⚠️ WebSocket disconnected (${reason}). Reconnecting in ${delay/1000}s (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
 
         setTimeout(() => {
             connect();
         }, delay);
     };
 
-    // Add cleanup method for shutdown
     const cleanup = async () => {
         console.log("Cleaning up WebSocket resources...");
 
@@ -358,7 +341,6 @@ function createReconnectingWebSocketProvider() {
         }
     };
 
-    // Initial connection
     connect();
 
     return {
@@ -371,21 +353,20 @@ function createReconnectingWebSocketProvider() {
     };
 }
 
-// Create the WebSocket connection manager
 const wsManager = createReconnectingWebSocketProvider();
 
-// Add a status command to the bot
 bot.command('status', async (ctx) => {
     if (!isPrivateChat(ctx)) return;
 
-    const status = wsManager.getStatus();
-    const txProviderConnected = await txProvider.getNetwork().then(() => true).catch(() => false);
+    const wsStatus = wsManager.getStatus();
+    const httpStatus = await httpProvider.getHttpProviderStatus();
 
     const statusMessage = `
 🤖 Bot Status:
-- WebSocket: ${status.connected ? '✅ Connected' : '❌ Disconnected'}
-- Reconnect Attempts: ${status.reconnectAttempts}
-- Transaction Provider: ${txProviderConnected ? '✅ Connected' : '❌ Disconnected'}
+- WebSocket: ${wsStatus.connected ? '✅ Connected' : '❌ Disconnected'}
+- Reconnect Attempts (WS): ${wsStatus.reconnectAttempts}
+- HTTP Provider: ${httpStatus.connected ? '✅ Connected' : '❌ Disconnected'}
+- HTTP Reconnect Attempts: ${httpStatus.reconnectAttempts}
 - Monitoring Address: ${process.env.TARGET_ADDRESS}
 - Betting Index: ${bettingIndex}
     `;
@@ -393,35 +374,38 @@ bot.command('status', async (ctx) => {
     ctx.reply(statusMessage);
 });
 
-// Command to force WebSocket reconnection
 bot.command('reconnect', async (ctx) => {
     if (!isPrivateChat(ctx)) return;
 
     await ctx.reply('🔄 Manually reconnecting WebSocket...');
     wsManager.reconnect('Manual reconnection requested');
-
     await ctx.reply('Reconnection process started');
 });
 
-// Enhanced graceful shutdown
+bot.command('reconnecthttp', async (ctx) => {
+    if (!isPrivateChat(ctx)) return;
+
+    await ctx.reply('🔄 Manually reconnecting HTTP Provider...');
+    const success = await httpProvider.handleHttpReconnection('Manual reconnection requested', bot);
+    
+    if (success) {
+        await ctx.reply('HTTP Provider reconnection successful');
+    } else {
+        await ctx.reply('HTTP Provider reconnection failed');
+    }
+});
+
 process.once('SIGINT', async () => {
     console.log('Shutting down bot and closing connections...');
-
-    // Close Telegram bot
     bot.stop('SIGINT');
 
     try {
-        console.log('Closing WebSocket connections...');
-        // Use the cleanup method from wsManager instead of directly accessing heartbeatInterval
+        console.log('Closing all connections...');
         await wsManager.cleanup();
-
-        if (txProvider) {
-            await txProvider.destroy();
-        }
-
-        console.log('WebSocket connections closed successfully');
+        await httpProvider.cleanupHttpProvider();
+        console.log('All connections closed successfully');
     } catch (error) {
-        console.error('Error closing WebSocket connections:', error);
+        console.error('Error closing connections:', error);
     }
 
     console.log('Shutdown complete');
@@ -429,22 +413,16 @@ process.once('SIGINT', async () => {
 });
 
 process.once('SIGTERM', async () => {
-    // Same shutdown procedure as SIGINT
     console.log('Shutting down bot and closing connections...');
     bot.stop('SIGTERM');
 
     try {
-        console.log('Closing WebSocket connections...');
-        // Use the cleanup method from wsManager instead of directly accessing heartbeatInterval
+        console.log('Closing all connections...');
         await wsManager.cleanup();
-
-        if (txProvider) {
-            await txProvider.destroy();
-        }
-
-        console.log('WebSocket connections closed successfully');
+        await httpProvider.cleanupHttpProvider();
+        console.log('All connections closed successfully');
     } catch (error) {
-        console.error('Error closing WebSocket connections:', error);
+        console.error('Error closing connections:', error);
     }
 
     console.log('Shutdown complete');

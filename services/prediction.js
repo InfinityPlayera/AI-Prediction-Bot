@@ -1,14 +1,21 @@
+// prediction.js
 const ClaimEpoch = require('../models/claimModel');
+const { handleHttpReconnection } = require('../httpProvider');
 
-async function getCurrentEpoch(txContract) {
+async function getCurrentEpoch(txContract, bot) {
     try {
         return await txContract.currentEpoch();
     } catch(error) {
         console.error("Error fetching current epoch:", error);
+        if (error.code === 'SERVER_ERROR' || error.message.includes('503')) {
+            await handleHttpReconnection('Error in getCurrentEpoch', bot);
+            return await txContract.currentEpoch();
+        }
+        throw error;
     }
 }
 
-async function placeBullBet(epoch, amount, txContract, address) {
+async function placeBullBet(epoch, amount, txContract, address, bot) {
     try {
         console.log('before placebullbet');
         const tx = await txContract.betBull(epoch, {
@@ -33,13 +40,17 @@ async function placeBullBet(epoch, amount, txContract, address) {
         console.log(message);
         return message;
     } catch (error) {
+        if (error.code === 'SERVER_ERROR' || error.message.includes('503')) {
+            await handleHttpReconnection('Error in placeBullBet', bot);
+            return await placeBullBet(epoch, amount, txContract, address, bot);
+        }
         const errorMsg = `Error placing bull bet on ${epoch}: ${error.message}`;
         console.error(errorMsg);
         return errorMsg;
     }
 }
 
-async function placeBearBet(epoch, amount, txContract, address) {
+async function placeBearBet(epoch, amount, txContract, address, bot) {
     try {
         console.log('before placebearbet');
         const tx = await txContract.betBear(epoch, {
@@ -64,59 +75,60 @@ async function placeBearBet(epoch, amount, txContract, address) {
         console.log(message);
         return message;
     } catch (error) {
+        if (error.code === 'SERVER_ERROR' || error.message.includes('503')) {
+            await handleHttpReconnection('Error in placeBearBet', bot);
+            return await placeBearBet(epoch, amount, txContract, address, bot);
+        }
         const errorMsg = `Error placing bear bet on ${epoch}: ${error.message}`;
         console.error(errorMsg);
         return errorMsg;
     }
 }
 
-async function claimRewards(txContract, address) {
+async function claimRewards(txContract, address, bot) {
     try {
-        // Get unclaimed bets from MongoDB
         const unclaimedBets = await ClaimEpoch.find({
             userAddress: address,
             claimed: false
         });
 
         if (unclaimedBets.length === 0) {
-            await this.sendTelegramMessage('No unclaimed bets found');
-            return;
+            return 'No unclaimed bets found';
         }
 
-        // Filter epochs that have closed and have rewards
-        const currentTimestamp = Math.floor(Date.now() / 1000); // Convert to seconds
+        const currentTimestamp = Math.floor(Date.now() / 1000);
         const claimableEpochs = [];
         const skippedEpochs = {
             notClosed: [],
             noRewards: []
         };
 
-        const epochsToDelete = []; // Track epochs to delete
+        const epochsToDelete = [];
 
         for (const bet of unclaimedBets) {
             try {
                 const round = await txContract.rounds(BigInt(bet.epoch));
-                // Check if round is closed
                 if (currentTimestamp <= Number(round.closeTimestamp)) {
                     skippedEpochs.notClosed.push(BigInt(bet.epoch));
                     continue;
                 }
-                // Check if user has rewards for this epoch
                 const isClaimable = await txContract.claimable(BigInt(bet.epoch), bet.userAddress);
 
                 if (isClaimable) {
                     claimableEpochs.push(BigInt(bet.epoch));
                 } else {
                     skippedEpochs.noRewards.push(BigInt(bet.epoch));
-                    // Delete epochs with no rewards instead of updating them
                     epochsToDelete.push(bet.epoch);
                 }
             } catch (error) {
+                if (error.code === 'SERVER_ERROR' || error.message.includes('503')) {
+                    await handleHttpReconnection('Error checking round', bot);
+                    return await claimRewards(txContract, address, bot);
+                }
                 console.error(`Error checking round ${bet.epoch}:`, error);
             }
         }
 
-        // Delete epochs with no rewards
         if (epochsToDelete.length > 0) {
             await ClaimEpoch.deleteMany({
                 epoch: { $in: epochsToDelete },
@@ -124,7 +136,6 @@ async function claimRewards(txContract, address) {
             });
         }
 
-        // Prepare status message
         let statusMessage = '';
         if (skippedEpochs.notClosed.length > 0) {
             statusMessage += `Rounds not yet closed: ${skippedEpochs.notClosed.join(', ')}\n`;
@@ -138,16 +149,18 @@ async function claimRewards(txContract, address) {
             return statusMessage.trim();
         }
 
-        // Call the claim function on the smart contract for epochs with rewards
         try {
             const tx = await txContract.claim(claimableEpochs);
             await tx.wait();
         } catch (error) {
+            if (error.code === 'SERVER_ERROR' || error.message.includes('503')) {
+                await handleHttpReconnection('Error claiming rewards', bot);
+                return await claimRewards(txContract, address, bot);
+            }
             console.error('Claim Error: ', error);
             return error.message;
         }
 
-        // Delete claimed epochs instead of updating them
         await ClaimEpoch.deleteMany({
             epoch: { $in: claimableEpochs.map(e => e.toString()) },
             userAddress: address
@@ -157,6 +170,10 @@ async function claimRewards(txContract, address) {
         console.log(successMessage);
         return successMessage.trim();
     } catch (error) {
+        if (error.code === 'SERVER_ERROR' || error.message.includes('503')) {
+            await handleHttpReconnection('Error in claimRewards', bot);
+            return await claimRewards(txContract, address, bot);
+        }
         const errorMsg = `Error claiming rewards: ${error.message}`;
         console.error(errorMsg);
         return errorMsg;
@@ -168,4 +185,4 @@ module.exports = {
     placeBullBet,
     placeBearBet,
     claimRewards
-}
+};
