@@ -1,6 +1,6 @@
 // prediction.js
 const ClaimEpoch = require('../models/claimModel');
-const { handleHttpReconnection } = require('../httpProvider');
+const { handleHttpReconnection } = require('../utils/httpProvider');
 
 async function getCurrentEpoch(txContract, bot) {
     try {

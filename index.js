@@ -6,7 +6,7 @@ const axios = require('axios');
 const { CONTRACT_ABI } = require('./config/contract');
 const { WSS_ENDPOINTS_CALL, RPC_ENDPOINTS_TX, PREDICTION_CONTRACT, BNB_KLINES_URL, CRYPTO_COMPARE_URL } = require('./config/constants');
 const { getCurrentEpoch, placeBearBet, placeBullBet, claimRewards } = require('./services/prediction');
-const httpProvider = require('./httpProvider');
+const httpProvider = require('./utils/httpProvider');
 
 // Import Telegram bot and command handlers
 const bot = require('./config/bot');
