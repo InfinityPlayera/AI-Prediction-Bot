@@ -175,7 +175,7 @@ const handleStartRoundEvent = async (epoch) => {
             return;
         }
 
-        console.log('Waiting for 278 seconds...');
+        console.log('Waiting for 285 seconds...');
         await sleep(285 * 1000);
         console.log('285 second wait completed');
 
